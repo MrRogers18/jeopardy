@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!-- Jeopardy! -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -143,7 +142,8 @@
 
         /* Sliders */
         input[type=range] {
-            -webkit-appearance: none;
+            -webkit-appearance: none; /* Keep for older webkit */
+            appearance: none;        /* Standard property added */
             width: 100%;
             height: 15px;
             border-radius: 5px;
@@ -1032,6 +1032,11 @@
             const container = document.getElementById('scoreboard-container');
             container.innerHTML = '';
             
+            // Adjust HUD width based on team count
+            const widthClass = state.teams.length === 4 ? 'w-3/4' : 'w-1/2';
+            // container.className = `flex justify-around items-center absolute left-1/2 transform -translate-x-1/2 ${widthClass}`;
+            // Actually, keep flex space-x-12 but ensure it fits.
+            
             state.teams.forEach((team, i) => {
                 const isActive = state.turn === i;
                 const activeClass = isActive ? "border-b-4 border-yellow-400 pb-1" : "pb-2 opacity-70";
@@ -1046,9 +1051,11 @@
                 container.appendChild(div);
             });
 
+            // Update Turn Indicator
             const turnEl = document.getElementById('turn-indicator');
             if(state.teams[state.turn]) {
                 turnEl.innerText = state.teams[state.turn].name;
+                // Cycle colors
                 const colors = ['text-blue-400', 'text-green-400', 'text-red-400', 'text-purple-400'];
                 turnEl.className = `text-xl font-bold animate-pulse ${colors[state.turn % 4]}`;
             }
