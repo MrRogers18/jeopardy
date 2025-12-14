@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<!-- Jeopardy! -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RMPS S3 Jeopardy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SheetJS for Excel Parsing -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    
+    <style>
+        :root {
+            /* Updated to match Final Jeopardy background (Tailwind blue-900) */
+            --jeopardy-blue: #1e3a8a;
+            --jeopardy-gold: #FFCC00;
+            --dark-bg: #121212;
+            --card-base: #010a7a;
+            --card-hover: #0b16a8;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow-x: hidden;
+            user-select: none;
+        }
+
+        /* Responsive Grid Text */
+        .cat-title {
+            font-family: 'Swiss921 BT', 'Swiss 721', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            font-weight: 900; 
+            font-size: clamp(1.0rem, 2.0vw, 3.5rem); /* Slightly adjusted for flexibility */
+            line-height: 1.0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            hyphens: none; 
+            -webkit-hyphens: none;
+            word-break: normal;
+            overflow-wrap: break-word; 
+            height: 100%; 
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .point-value {
+            font-family: 'Impact', sans-serif;
+            font-size: clamp(2rem, 4vw, 3.5rem);
+            color: var(--jeopardy-gold);
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        /* Card Styles */
+        .jeopardy-card {
+            background-color: var(--card-base);
+            border: 2px solid black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.1s, background-color 0.2s;
+            height: 100%; 
+            width: 100%;
+        }
+        .jeopardy-card:active { transform: scale(0.95); }
+        .jeopardy-card:hover { background-color: var(--card-hover); }
+        
+        .jeopardy-card.played {
+            background-color: #060840;
+            color: #444;
+            cursor: default;
+        }
+        .jeopardy-card.played .point-value { color: #444; text-shadow: none; }
+
+        /* Free Dip Style */
+        .jeopardy-card.free-dip {
+            background-color: #064e3b; /* Green tint */
+            border-color: #34d399;
+        }
+
+        /* Modal Overlay */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            /* Uses the updated darker blue variable */
+            background-color: var(--jeopardy-blue); 
+            z-index: 50;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .question-text {
+            /* Revert to Sans-Serif */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: clamp(1.5rem, 3.5vw, 4rem);
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 2rem;
+            color: white;
+            text-shadow: 2px 2px 0px #000; 
+            max-width: 90%;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+
+        /* MCQ Buttons */
+        .mcq-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            /* Expanded Width */
+            width: 98%;
+            max-width: 100%;
+            padding: 0 1rem;
+        }
+        
+        .mcq-btn {
+            background: #000080; 
+            border: 2px solid var(--jeopardy-gold);
+            color: white;
+            padding: 1.5rem;
+            /* Revert to Sans-Serif */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 1.5rem; 
+            font-weight: bold;
+            text-shadow: 2px 2px 0px #000;
+            border-radius: 1rem;
+            transition: all 0.2s;
+            text-align: left;
+            position: relative;
+            white-space: pre-wrap; 
+        }
+        .mcq-btn:hover { background: #0000a0; }
+        .mcq-btn.correct { background: #008000; border-color: #00ff00; }
+        .mcq-btn.wrong { background: #800000; border-color: #ff0000; opacity: 0.6; }
+
+        /* Sliders */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 15px;
+            border-radius: 5px;
+            background: #4a5568;
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            background: var(--jeopardy-gold);
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        /* Utility */
+        .hidden { display: none !important; }
+        .active-team { border-bottom: 4px solid var(--jeopardy-gold); padding-bottom: 4px; }
+        
+        /* Animation for Winner */
+        @keyframes celebrate {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); color: #ffff00; }
+            100% { transform: scale(1); }
+        }
+        .winner-text { animation: celebrate 1s infinite; }
+
+        /* Promethean Scrollbar */
+        ::-webkit-scrollbar { width: 12px; }
+        ::-webkit-scrollbar-track { background: #1a202c; }
+        ::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 6px; }
+
+    </style>
+</head>
+<body class="h-screen overflow-hidden">
+
+    <!-- HOME SCREEN -->
+    <div id="home-screen" class="absolute inset-0 bg-gray-900 z-40 flex flex-col items-center justify-center p-4">
+        <div class="text-center mb-12">
+            <h1 class="text-6xl md:text-8xl font-bold text-yellow-400 mb-4 tracking-tight" style="font-family: 'Swiss921 BT', 'Swiss 721', 'Helvetica Neue', Helvetica, Arial, sans-serif; text-shadow: 4px 4px 0px #000;">
+                Jeopardy!
+            </h1>
+            <p class="text-xl md:text-2xl text-blue-300 tracking-widest uppercase font-bold">Buckie Community High School</p>
+        </div>
+
+        <div class="flex flex-col gap-6 w-full max-w-md">
+            <button onclick="enterGame()" class="group relative bg-blue-700 hover:bg-blue-600 text-white text-3xl font-bold py-6 px-12 rounded-xl shadow-lg border-b-8 border-blue-900 active:border-b-0 active:translate-y-2 transition-all">
+                <div class="flex items-center justify-center">
+                    <i class="fas fa-play mr-4 group-hover:scale-110 transition-transform"></i> 
+                    <span id="start-btn-text">START GAME</span>
+                </div>
+            </button>
+            
+            <div class="flex gap-4">
+                <button onclick="openTutorial()" class="flex-1 group bg-green-700 hover:bg-green-600 text-white text-xl font-bold py-4 px-4 rounded-xl shadow-lg border-b-8 border-green-900 active:border-b-0 active:translate-y-2 transition-all">
+                    <div class="flex items-center justify-center">
+                        <i class="fas fa-info-circle mr-2 group-hover:scale-110 transition-transform"></i> 
+                        TUTORIAL
+                    </div>
+                </button>
+
+                <button onclick="openHomeSettings()" class="flex-1 group bg-gray-700 hover:bg-gray-600 text-gray-200 text-xl font-bold py-4 px-4 rounded-xl shadow-lg border-b-8 border-gray-900 active:border-b-0 active:translate-y-2 transition-all">
+                    <div class="flex items-center justify-center">
+                        <i class="fas fa-cog mr-2 group-hover:rotate-90 transition-transform duration-500"></i> 
+                        SETUP
+                    </div>
+                </button>
+            </div>
+        </div>
+        
+        <div class="absolute bottom-4 text-gray-600 text-sm">
+            Created by C Rogers
+        </div>
+    </div>
+
+    <!-- GAME UI (Initially Hidden) -->
+    <div id="game-ui" class="flex flex-col h-full hidden">
+        <!-- HUD -->
+        <header class="bg-gray-900 border-b border-gray-700 p-2 flex justify-between items-center h-20 shrink-0">
+            <!-- Turn Indicator -->
+            <div class="flex items-center space-x-4 ml-4">
+                <span class="text-gray-400 text-sm uppercase tracking-widest">Selector:</span>
+                <div id="turn-indicator" class="text-xl font-bold text-yellow-400 animate-pulse">Team 1</div>
+            </div>
+
+            <!-- Dynamic Scores -->
+            <div class="flex space-x-12 absolute left-1/2 transform -translate-x-1/2" id="scoreboard-container">
+                <!-- Generated by JS -->
+            </div>
+
+            <!-- Tools -->
+            <div class="mr-4 flex space-x-3">
+                <button onclick="toggleInGameSettings()" class="text-gray-400 hover:text-white p-2"><i class="fas fa-cog fa-2x"></i></button>
+            </div>
+        </header>
+
+        <!-- Game Board -->
+        <main id="game-board-container" class="flex-grow flex flex-col p-2 gap-2 overflow-hidden min-h-0">
+            <!-- Round Header (Dynamic Flex Height) -->
+            <div id="category-row" class="grid gap-2">
+                <!-- Injected by JS -->
+            </div>
+            <!-- Grid (Dynamic Flex Height) -->
+            <div id="questions-grid" class="grid gap-2">
+                <!-- Injected by JS -->
+            </div>
+        </main>
+    </div>
+
+    <!-- --- MODALS --- -->
+
+    <!-- 1. Home Screen Settings Modal -->
+    <div id="home-settings-modal" class="modal-overlay" style="z-index: 100; display: none;">
+        <div class="bg-gray-800 p-8 rounded-xl border border-gray-600 max-w-2xl w-full text-center shadow-2xl overflow-y-auto max-h-[95vh]">
+            <h2 class="text-3xl text-white mb-6 font-bold">Game Setup</h2>
+            
+            <!-- Team Count -->
+            <div class="mb-6 text-left">
+                <label class="block text-gray-400 mb-2 font-bold">Number of Teams</label>
+                <div class="flex bg-gray-700 rounded-lg p-1">
+                    <button onclick="setTempTeamCount(2)" id="btn-count-2" class="flex-1 py-2 rounded font-bold transition-colors bg-blue-600 text-white">2</button>
+                    <button onclick="setTempTeamCount(3)" id="btn-count-3" class="flex-1 py-2 rounded font-bold transition-colors text-gray-400 hover:text-white">3</button>
+                    <button onclick="setTempTeamCount(4)" id="btn-count-4" class="flex-1 py-2 rounded font-bold transition-colors text-gray-400 hover:text-white">4</button>
+                </div>
+            </div>
+
+            <!-- Team Names -->
+            <div class="mb-6 text-left" id="home-team-inputs">
+                <!-- Inputs injected by JS -->
+            </div>
+
+            <!-- Board Configuration -->
+            <div class="mb-6 text-left border-t border-gray-700 pt-6">
+                <label class="block text-gray-400 mb-2 font-bold">Board Configuration</label>
+                
+                <!-- Category Count Slider -->
+                <div class="mb-4">
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm text-gray-400">Categories (Columns)</span>
+                        <span id="disp-cat-count" class="text-sm font-mono text-yellow-400 font-bold">6</span>
+                    </div>
+                    <input type="range" id="slider-cat-count" min="1" max="6" value="6" 
+                           oninput="updateConfigDisplay('cat', this.value)" class="w-full">
+                </div>
+
+                <!-- Difficulty Slider -->
+                <div class="mb-4">
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm text-gray-400">Max Difficulty (Rows)</span>
+                        <span id="disp-diff-count" class="text-sm font-mono text-yellow-400 font-bold">5</span>
+                    </div>
+                    <input type="range" id="slider-diff-count" min="1" max="5" value="5" 
+                           oninput="updateConfigDisplay('diff', this.value)" class="w-full">
+                </div>
+            </div>
+
+            <!-- Uploads -->
+            <div class="mb-8 text-left border-t border-gray-700 pt-6">
+                <label class="block text-gray-400 mb-2 font-bold">Question Sets (Excel/CSV)</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="openUploadModal('round1')" class="bg-gray-700 hover:bg-gray-600 text-white py-3 rounded border border-gray-500 text-sm font-bold">Upload Rd 1</button>
+                    <button onclick="openUploadModal('round2')" class="bg-gray-700 hover:bg-gray-600 text-white py-3 rounded border border-gray-500 text-sm font-bold">Upload Rd 2</button>
+                    <button onclick="openUploadModal('final')" class="bg-gray-700 hover:bg-gray-600 text-white py-3 rounded border border-gray-500 text-sm font-bold">Upload Final</button>
+                </div>
+            </div>
+
+            <div class="flex gap-4">
+                <button onclick="closeHomeSettings()" class="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 rounded-lg">Cancel</button>
+                <button onclick="saveHomeSettings()" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg">Save Config</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 11. Upload/Edit Data Modal -->
+    <div id="upload-modal" class="modal-overlay" style="z-index: 110; display: none;">
+        <div class="bg-gray-800 p-8 rounded-xl border border-gray-600 max-w-4xl w-full h-[90vh] flex flex-col shadow-2xl relative">
+            
+            <!-- Help Button -->
+            <button onclick="openCsvHelp()" class="absolute top-8 right-16 text-blue-300 hover:text-white font-bold flex items-center">
+                <i class="fas fa-info-circle mr-2 text-xl"></i> Format Instructions
+            </button>
+
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl text-white font-bold" id="upload-modal-title">Upload Data</h2>
+                <button onclick="closeUploadModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times fa-2x"></i></button>
+            </div>
+
+            <div class="mb-6 bg-gray-900 p-4 rounded border border-dashed border-gray-600 text-center">
+                <input type="file" id="file-upload-input" class="hidden" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" onchange="handleFileUpload(this)">
+                <label for="file-upload-input" class="cursor-pointer flex flex-col items-center justify-center h-full">
+                    <i class="fas fa-file-upload text-4xl text-blue-400 mb-2"></i>
+                    <span class="text-blue-300 font-bold">Click to Upload Excel/CSV</span>
+                    <span class="text-xs text-gray-500 mt-1">Parses headers: Category, Difficulty, Question, Right Answer, etc.</span>
+                </label>
+            </div>
+
+            <label class="text-gray-400 text-sm mb-2">Raw JSON Data (Editable)</label>
+            <textarea id="json-editor" class="flex-grow w-full bg-gray-900 text-green-400 font-mono text-xs p-4 rounded border border-gray-700 resize-none focus:border-blue-500 outline-none mb-4"></textarea>
+
+            <button onclick="saveUploadedData()" class="bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded text-xl">Apply Data</button>
+        </div>
+    </div>
+
+    <!-- 12. CSV Help Modal -->
+    <div id="csv-help-modal" class="modal-overlay" style="z-index: 120; display: none;">
+        <div class="bg-gray-800 p-8 rounded-xl border-2 border-blue-400 max-w-2xl w-full shadow-2xl relative overflow-y-auto max-h-[90vh]">
+            <button onclick="closeCsvHelp()" class="absolute top-4 right-4 text-gray-400 hover:text-white"><i class="fas fa-times fa-2x"></i></button>
+            
+            <h2 class="text-3xl text-blue-300 font-bold mb-4">CSV/Excel Format Guide</h2>
+            
+            <p class="text-white mb-4">Your spreadsheet must include the following headers (case-insensitive):</p>
+            
+            <div class="bg-gray-900 p-4 rounded mb-6 text-sm font-mono text-green-400 border border-gray-600 overflow-x-auto">
+                Category, Difficulty, Question, Right Answer, Wrong Answer 1, Wrong Answer 2, Wrong Answer 3
+            </div>
+
+            <h3 class="text-xl text-yellow-400 font-bold mb-2">Variation Rules</h3>
+            <ul class="list-disc list-inside text-gray-300 space-y-2 mb-6">
+                <li><strong class="text-white">Difficulty:</strong> Must be a number from 1 (Easy/Top row) to 5 (Hard/Bottom row).</li>
+                <li><strong class="text-white">Too Many Questions:</strong> If you upload multiple questions for the same Category and Difficulty (e.g., three 'Science' questions at Level 1), they function as a <strong>Deck</strong>. The game will randomly pick one each time the board loads.</li>
+                <li><strong class="text-white">Too Few Questions:</strong> If a slot (e.g., 'History', Level 5) has NO questions in your file, it becomes a <strong>Free Dip</strong> tile. Clicking it awards points immediately without a question.</li>
+                <li><strong class="text-white">Categories:</strong> The game uses the first 6 categories found in the file. If you have more, it selects 6 at random to build the board.</li>
+            </ul>
+
+            <button onclick="closeCsvHelp()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded text-lg">Got it</button>
+        </div>
+    </div>
+
+    <!-- 13. Round Complete Modal -->
+    <div id="round-complete-modal" class="modal-overlay" style="z-index: 100; display: none;">
+        <div class="bg-gray-900 p-8 rounded-xl border-4 border-blue-500 text-center max-w-4xl w-full shadow-2xl">
+            <h2 class="text-5xl font-bold text-white mb-2" id="rc-title">ROUND 1 COMPLETE</h2>
+            <div class="text-yellow-400 text-2xl mb-8 font-bold">Current Standings</div>
+            
+            <div id="rc-scores" class="flex justify-center gap-8 mb-10 flex-wrap">
+                <!-- Injected Scores -->
+            </div>
+
+            <button id="rc-next-btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 px-12 rounded-xl text-3xl shadow-lg border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all">
+                Start Round 2
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. In-Game Settings Panel (Slide-out) -->
+    <div id="settings-panel" class="fixed top-0 right-0 h-full w-96 bg-gray-800 shadow-2xl transform translate-x-full transition-transform duration-300 z-50 p-6 overflow-y-auto">
+        <div class="flex justify-between items-center mb-8">
+            <h2 class="text-2xl font-bold">Game Controls</h2>
+            <button onclick="toggleInGameSettings()" class="text-red-400"><i class="fas fa-times fa-2x"></i></button>
+        </div>
+
+        <div class="space-y-6">
+            <div class="p-4 bg-gray-700 rounded">
+                <label class="block text-gray-400 text-sm mb-4 font-bold">Score Adjustments</label>
+                <div id="ingame-score-inputs" class="space-y-3">
+                    <!-- Injected by JS -->
+                </div>
+            </div>
+
+            <div class="p-4 bg-gray-700 rounded">
+                <label class="block text-gray-400 text-sm">Game Phases</label>
+                <button onclick="startRound(2)" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded mt-2">Start Round 2 (Double)</button>
+                <button onclick="initFinalJeopardy()" class="w-full bg-purple-600 hover:bg-purple-500 text-white py-2 rounded mt-2">Start Final Jeopardy</button>
+            </div>
+            
+            <hr class="border-gray-600">
+
+            <button onclick="quitToHome()" class="w-full bg-red-800 hover:bg-red-700 text-white py-4 rounded font-bold mt-4 border border-red-900">
+                <i class="fas fa-home mr-2"></i> QUIT TO HOME
+            </button>
+            <p class="text-xs text-red-400 text-center mt-1">This will reset the game.</p>
+        </div>
+    </div>
+
+    <!-- 3. Wager Modal (Daily Double) -->
+    <div id="wager-modal" class="modal-overlay">
+        <div class="bg-blue-900 p-8 rounded-xl border-4 border-yellow-500 text-center max-w-2xl w-full">
+            <h2 class="text-4xl font-bold text-yellow-400 mb-2 font-serif text-shadow">DAILY DOUBLE!</h2>
+            <p class="text-white text-xl mb-6">Wager your points (Max: <span id="max-wager">1000</span>)</p>
+            
+            <div class="mb-8">
+                <span id="wager-display" class="text-6xl font-mono font-bold text-white block mb-4">0</span>
+                <input type="range" id="wager-slider" min="5" max="1000" step="5" value="0" class="w-full" oninput="updateWagerDisplay('wager-display', this.value)">
+            </div>
+            
+            <button onclick="submitDailyDoubleWager()" class="bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-4 px-8 rounded-lg text-2xl w-full">
+                CONFIRM WAGER
+            </button>
+        </div>
+    </div>
+
+    <!-- 4. Question Modal (Standard) -->
+    <div id="question-modal" class="modal-overlay">
+        <!-- Close button removed as requested to prevent race conditions -->
+
+        <div class="w-full flex flex-col items-center">
+            <div class="bg-blue-800 px-6 py-2 rounded-full text-yellow-400 font-bold tracking-widest mb-6 border-2 border-yellow-400 shadow-lg">
+                <span id="q-modal-cat">CATEGORY</span> &bull; <span id="q-modal-val">200</span>
+            </div>
+
+            <div id="q-text" class="question-text">Question...</div>
+
+            <div id="mcq-container" class="mcq-grid"></div>
+            
+            <p id="feedback-text" class="text-yellow-400 font-bold mt-4 text-xl opacity-0 transition-opacity text-shadow">Saving...</p>
+        </div>
+    </div>
+
+    <!-- 5. Final Jeopardy: Wager Phase -->
+    <div id="final-wager-modal" class="modal-overlay">
+        <div class="bg-gray-800 p-8 rounded-xl border border-gray-600 max-w-5xl w-full text-center">
+            <h2 class="text-4xl font-bold text-yellow-400 mb-8">FINAL JEOPARDY WAGERS</h2>
+            
+            <div id="final-wager-grid" class="grid grid-cols-2 gap-8 mb-8">
+                <!-- Injected by JS based on team count -->
+            </div>
+
+            <button onclick="startFinalRound()" class="bg-yellow-500 text-black font-bold py-3 px-12 rounded-lg text-2xl hover:bg-yellow-400 shadow-lg">
+                Lock In Wagers
+            </button>
+        </div>
+    </div>
+
+    <!-- 6. Final Jeopardy: Game Phase -->
+    <div id="final-game-modal" class="modal-overlay" style="display: none; align-items: flex-start; overflow-y: auto;">
+        
+        <div id="final-q-overlay" class="absolute top-0 left-0 w-full h-full bg-blue-900 z-50 flex flex-col items-center justify-center p-8 transition-transform duration-300">
+            <h2 class="text-3xl text-yellow-400 mb-6 font-bold tracking-widest">FINAL JEOPARDY</h2>
+            <div id="final-q-text-large" class="question-text text-4xl font-bold text-center text-white max-w-5xl mb-12 leading-relaxed">
+                Question...
+            </div>
+            <button onclick="toggleFinalQuestion(false)" class="bg-white text-blue-900 font-bold py-4 px-10 rounded-full text-2xl hover:scale-105 transition-transform">
+                View Answer Options <i class="fas fa-chevron-down ml-2"></i>
+            </button>
+        </div>
+
+        <div class="w-full flex flex-col items-center pt-8 pb-12 relative min-h-screen">
+            <div class="flex justify-between w-full max-w-6xl mb-4 px-4">
+                <button onclick="toggleFinalQuestion(true)" class="bg-blue-800 text-yellow-400 px-4 py-2 rounded font-bold border border-blue-600">
+                    <i class="fas fa-eye mr-2"></i> Show Question
+                </button>
+                <div class="text-2xl font-bold text-white" id="final-status-bar">
+                    <span class="text-gray-300">Current Turn:</span> <span id="final-current-team" class="text-yellow-400">Team 1</span>
+                </div>
+            </div>
+
+            <div id="final-mcq-container" class="grid grid-cols-1 gap-4 w-full max-w-5xl"></div>
+        </div>
+    </div>
+
+    <!-- 7. Final Result / Winner Modal -->
+    <div id="final-result-modal" class="modal-overlay">
+        <!-- Flexbox layout with fixed height to prevent scrolling -->
+        <div class="bg-gray-900 p-6 rounded-xl border-4 border-yellow-500 text-center max-w-7xl w-[95%] h-[95vh] flex flex-col justify-between shadow-2xl">
+            <!-- Header Section -->
+            <div class="flex-none">
+                <h1 class="text-5xl font-bold text-yellow-400 mb-2">GAME OVER</h1>
+                <div class="bg-blue-900 p-4 rounded mb-2 text-left">
+                    <p class="text-gray-300 text-sm uppercase">Correct Answer:</p>
+                    <p class="text-white text-xl font-bold leading-tight question-text" style="font-size: 1.5rem; margin:0; text-align: left;" id="result-correct-text">The answer...</p>
+                </div>
+            </div>
+
+            <!-- Results Grid (Grows to fill space) -->
+            <div id="final-results-grid" class="flex-grow min-h-0 grid grid-cols-2 gap-4 my-4">
+                <!-- Injected by JS -->
+            </div>
+
+            <!-- Footer Section -->
+            <div class="flex-none pt-4 border-t border-gray-700">
+                <p class="text-xl text-gray-400 uppercase tracking-widest">The Winner Is</p>
+                <h2 class="text-6xl font-bold text-yellow-400 winner-text mt-1 mb-4" id="winner-name">TEAM 1</h2>
+                
+                <button onclick="returnToHome()" class="text-2xl text-blue-300 hover:text-white hover:underline bg-transparent border-none cursor-pointer font-bold px-8 py-2 rounded transition-colors">
+                    <i class="fas fa-home mr-2"></i> Return to Home Screen
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 8. Generic Message Modal -->
+    <div id="message-modal" class="modal-overlay" style="z-index: 100; display: none;">
+        <div class="bg-gray-800 p-8 rounded-xl border border-gray-600 max-w-xl w-full text-center shadow-2xl">
+            <h3 class="text-3xl text-white mb-6 font-bold" id="msg-modal-text">Message</h3>
+            <button onclick="closeMessageModal()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-lg text-xl border-2 border-blue-400">
+                OK
+            </button>
+        </div>
+    </div>
+
+    <!-- 9. Confirmation Modal -->
+    <div id="confirm-modal" class="modal-overlay" style="z-index: 100; display: none;">
+        <div class="bg-gray-800 p-8 rounded-xl border-4 border-red-600 max-w-xl w-full text-center shadow-2xl">
+            <h3 class="text-4xl text-red-500 mb-6 font-bold"><i class="fas fa-exclamation-triangle mr-2"></i> WARNING</h3>
+            <p class="text-white text-2xl mb-8" id="confirm-modal-text">Are you sure?</p>
+            <div class="flex justify-center gap-6">
+                <button onclick="confirmAction(true)" class="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-8 rounded-lg text-xl border-2 border-red-400">Yes, Reset</button>
+                <button onclick="confirmAction(false)" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-8 rounded-lg text-xl border-2 border-gray-400">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 10. Tutorial Modal -->
+    <div id="tutorial-modal" class="modal-overlay" style="z-index: 100; display: none;">
+        <div class="bg-gray-800 p-8 rounded-xl border-2 border-yellow-500 max-w-3xl w-full shadow-2xl relative">
+            <button onclick="closeTutorial()" class="absolute top-4 right-4 text-gray-400 hover:text-white"><i class="fas fa-times fa-2x"></i></button>
+            <h2 class="text-4xl font-bold text-yellow-400 mb-6 text-center tracking-widest">HOW TO PLAY</h2>
+            <div id="tut-step-1" class="tut-step"><h3 class="text-2xl text-blue-300 font-bold mb-4">1. The Basics</h3><p class="text-xl text-white mb-6 leading-relaxed">Teams take turns choosing a Category and a Point Value from the board.<br><br>Read the question, discuss with your team, and select the best answer.<br><br><span class="text-green-400">Correct?</span> You win the points!<br><span class="text-red-400">Wrong?</span> No points awarded (unless it's a wager question).</p></div>
+            <div id="tut-step-2" class="tut-step hidden"><h3 class="text-2xl text-green-300 font-bold mb-4">2. Scoring & Rounds</h3><p class="text-xl text-white mb-6 leading-relaxed"><strong>Round 1:</strong> Questions are worth 200 to 1000 points.<br><strong>Round 2:</strong> Stakes double! Questions are worth 400 to 2000 points.<br><br><span class="text-yellow-400 font-bold">Daily Doubles:</span> Hidden on the board! If you find one, you can wager up to your ENTIRE score before seeing the question.</p></div>
+            <div id="tut-step-3" class="tut-step hidden"><h3 class="text-2xl text-purple-300 font-bold mb-4">3. Final Jeopardy</h3><p class="text-xl text-white mb-6 leading-relaxed">The game ends with one final question.<br><br>Both teams secretly wager points.<br><br>Teams take turns locking in their answer on the board. The team with the highest score wins!</p></div>
+            <div class="flex justify-between mt-8 pt-4 border-t border-gray-700">
+                <button id="tut-prev" onclick="prevTutorialStep()" class="bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded text-lg opacity-50 cursor-not-allowed" disabled>Back</button>
+                <div class="flex space-x-2 items-center"><span id="tut-dot-1" class="w-3 h-3 rounded-full bg-yellow-400"></span><span id="tut-dot-2" class="w-3 h-3 rounded-full bg-gray-600"></span><span id="tut-dot-3" class="w-3 h-3 rounded-full bg-gray-600"></span></div>
+                <button id="tut-next" onclick="nextTutorialStep()" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded text-lg font-bold">Next</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA ---
+        let gameData = {
+            round1: {
+                categories: ["Egoism", "Utilitarianism", "Religious Authority", "Moral Basics", "Learning Morals", "The Situations"],
+                questions: [
+                    // Row 1 (200)
+                    [
+                        { q: "What is the motto for Egoism?", options: ["I will do what is best for me", "I will do what is best for the majority", "I will do what God wants", "I will do what makes me rich"], correct: 0 },
+                        { q: "What is the motto for Utilitarianism?", options: ["I will do what is best for most people", "I will do what is best for me", "I will do what is easiest", "I will do what is legal"], correct: 0 },
+                        { q: "What is the motto for Religious Authority?", options: ["I will do what my religion tells me", "I will do what is best for me", "I will do what is popular", "I will do what is logical"], correct: 0 },
+                        { q: "What is the definition of Ethics?", options: ["Deciding what behaviour is right and wrong", "The study of law", "Learning about history", "Following school rules"], correct: 0 },
+                        { q: "Who are usually the first people we learn morals from?", options: ["Parents", "Teachers", "Friends", "TV"], correct: 0 },
+                        { q: "A father lies to his daughter about her pet dying to avoid making her sad. Which theory might support this 'white lie'?", options: ["Utilitarianism (Minimizes pain)", "Religious Authority (Truth is absolute)", "Egoism (Dad doesn't care)", "Nihilism"], correct: 0 }
+                    ],
+                    // Row 2 (400)
+                    [
+                        { q: "Why might an Egoist avoid taking illegal drugs?", options: ["It is a 'mugs game' and bad for them personally", "It hurts their family", "It is against the law", "God forbids it"], correct: 0 },
+                        { q: "In Utilitarianism, who matters the most?", options: ["The Majority", "The Individual", "God", "The Law"], correct: 0 },
+                        { q: "What is the main source of authority for Christians?", options: ["The Bible", "The News", "Science Textbooks", "The Government"], correct: 0 },
+                        { q: "Which of these is a NON-moral decision?", options: ["Choosing a burger for lunch", "Stealing a car", "Lying to a teacher", "Hitting someone"], correct: 0 },
+                        { q: "What is one way we learn from experience?", options: ["Looking back on mistakes", "Reading books", "Listening to music", "Sleeping"], correct: 0 },
+                        { q: "An Egoist finds a wallet full of cash. Why might they return it?", options: ["To get a reward or praise", "Because stealing is a sin", "To help the owner", "Because it's the law"], correct: 0 }
+                    ],
+                    // Row 3 (600)
+                    [
+                        { q: "Why might an Egoist misbehave in class?", options: ["Because it suits them/they don't want to work", "To annoy the teacher", "To help others learn", "Because they are bored"], correct: 0 },
+                        { q: "What is the main argument for the smoking ban (Utilitarianism)?", options: ["It improves health for the majority", "It saves money", "It smells better", "It is the law"], correct: 0 },
+                        { q: "Complete the Commandment: 'Do not...'", options: ["Kill", "Run", "Eat", "Sleep"], correct: 0 },
+                        { q: "Which is a moral decision?", options: ["Telling the truth about a friend's clothes", "Walking to school", "Watching TV", "Eating an apple"], correct: 0 },
+                        { q: "What do rules help us learn?", options: ["Right from wrong", "Maths", "Sports", "Cooking"], correct: 0 },
+                        { q: "A government limits families to one child to prevent starvation. This focuses on...", options: ["The majority (Utilitarianism)", "Individual freedom", "Religious rules", "Egoism"], correct: 0 }
+                    ],
+                    // Row 4 (800)
+                    [
+                        { q: "What is an Egoist's view on starving people?", options: ["Not my problem if I have enough", "We must help them", "It is sad", "God will help them"], correct: 0 },
+                        { q: "Why is drink driving considered wrong by Utilitarians?", options: ["It endangers the safety of the majority", "It is illegal", "It is expensive", "It is a sin"], correct: 0 },
+                        { q: "What did Jesus add to the commandments?", options: ["Love your neighbour", "Do not steal", "Do not lie", "Respect parents"], correct: 0 },
+                        { q: "Why do we have morals?", options: ["To prevent chaos and live together", "To make life boring", "To follow orders", "To make money"], correct: 0 },
+                        { q: "The booklet says human beings are ________ machines.", options: ["Learning", "Eating", "Sleeping", "Fighting"], correct: 0 },
+                        { q: "Refusing to fight in a war because 'Thou Shalt Not Kill' is an example of...", options: ["Religious Authority", "Egoism", "Utilitarianism", "Nihilism"], correct: 0 }
+                    ],
+                    // Row 5 (1000)
+                    [
+                        { q: "Is Egoism always selfish?", options: ["Not necessarily, just self-focused", "Yes, always", "No, it is altruistic", "It is religious"], correct: 0 },
+                        { q: "If a whole class bullies one student for fun, why does a Utilitarian struggle to say it's wrong?", options: ["The majority (class) is happy, outweighing the one", "It is illegal", "The student didn't mind", "The teacher stopped it"], correct: 0 },
+                        { q: "What happens if a Christian breaks God's rules?", options: ["They fall short of God's expectations (Sin)", "Nothing", "They go to jail", "They are happy"], correct: 0 },
+                        { q: "What influences our decisions?", options: ["Where/how we live and think", "Only the law", "Only friends", "Only money"], correct: 0 },
+                        { q: "Can we learn from watching others?", options: ["Yes, by following example", "No", "Maybe", "Only if they are famous"], correct: 0 },
+                        { q: "Forgiving a criminal because the Bible says 'Forgive us our sins' is...", options: ["Religious Authority", "Utilitarianism", "Egoism", "Common Sense"], correct: 0 }
+                    ]
+                ]
+            },
+            round2: {
+                categories: ["Egoism in Action", "Utilitarian Dilemmas", "Religious Heroes", "Key Terms", "The 10 Rules", "Moral Scenarios"],
+                questions: [
+                    // Row 1 (400)
+                    [
+                        { q: "Why might an Egoist want their dying father put to sleep?", options: ["To stop their OWN suffering of watching him", "To save money", "Because the doctor said so", "To follow the law"], correct: 0 },
+                        { q: "A wealthy man has 10 houses. A Utilitarian might suggest...", options: ["Sharing them with the homeless (Increase happiness)", "Buying more houses", "Burning them", "Keeping them empty"], correct: 0 },
+                        { q: "Eric Liddell refused to run in the Olympics on a Sunday. Why?", options: ["It was the Sabbath (God's Day)", "He was injured", "He was scared", "He wasn't ready"], correct: 0 },
+                        { q: "What is the study of moral behaviour called?", options: ["Ethics", "Biology", "History", "Physics"], correct: 0 },
+                        { q: "Complete: 'Do not...'", options: ["Steal", "Run", "Eat", "Talk"], correct: 0 },
+                        { q: "A group is hiding from danger. A baby cries. Why would a Religious Authority refuse to silence the baby?", options: ["'Thou Shalt Not Kill' is absolute", "The baby is loud", "They want to get caught", "They don't like silence"], correct: 0 }
+                    ],
+                    // Row 2 (800)
+                    [
+                        { q: "Why would an Egoist refuse drugs from university friends?", options: ["They know it is dangerous for THEM", "It is illegal", "It hurts society", "God says no"], correct: 0 },
+                        { q: "How might a Utilitarian justify a war?", options: ["If it brings long-term peace for the majority", "War is always wrong", "God wants it", "It helps the economy"], correct: 0 },
+                        { q: "Pope John Paul II was shot. What was his religious response to the gunman?", options: ["He forgave him", "He attacked him", "He ignored him", "He sued him"], correct: 0 },
+                        { q: "What are 'Consequences'?", options: ["The results of an action", "The start of an action", "The rules", "The laws"], correct: 0 },
+                        { q: "Complete: 'Respect your...'", options: ["Mother and Father", "Teachers", "Friends", "Self"], correct: 0 },
+                        { q: "You find £10. No one saw. A Religious Authority says...", options: ["Hand it in ('Do not steal')", "Keep it", "Buy sweets", "Give it to a friend"], correct: 0 }
+                    ],
+                    // Row 3 (1200)
+                    [
+                        { q: "Is Egoism illegal?", options: ["No, unless the specific action is illegal", "Yes, always", "Only in school", "Only in Scotland"], correct: 0 },
+                        { q: "What is the 'Poverty' argument for Utilitarianism?", options: ["If most are well off, poverty isn't a priority", "We must give everything to the poor", "Poverty doesn't exist", "Everyone is poor"], correct: 0 },
+                        { q: "Martin Luther King Jr fought for civil rights. His motivation was...", options: ["Christian belief in equality", "Political power", "Money", "Fame"], correct: 0 },
+                        { q: "What does 'Majority' mean?", options: ["Most people", "All people", "Few people", "No one"], correct: 0 },
+                        { q: "Complete: 'Do not work on...'", options: ["The Sabbath", "Monday", "Friday", "My Birthday"], correct: 0 },
+                        { q: "A terrorist has a bomb. A Utilitarian tortures him. Why?", options: ["To save the thousands the bomb would kill", "Because he is bad", "To punish him", "It is the law"], correct: 0 }
+                    ],
+                    // Row 4 (1600)
+                    [
+                        { q: "What is an Egoist's main priority?", options: ["Themselves", "Their family", "The law", "God"], correct: 0 },
+                        { q: "What is the 'Racism' critique of Utilitarianism?", options: ["If the majority is racist, does the minority's pain not matter?", "Racism is good", "Racism is illegal", "Minorities are happy"], correct: 0 },
+                        { q: "Mother Teresa helped the poor in Calcutta. She saw this as...", options: ["Serving God", "A job", "A holiday", "A punishment"], correct: 0 },
+                        { q: "What are the '10 Commandments'?", options: ["Rules from God in the Bible", "School rules", "Laws of Scotland", "Advice from friends"], correct: 0 },
+                        { q: "Complete: 'Treat others...'", options: ["How you would want to be treated", "Badly", "With money", "With fear"], correct: 0 },
+                        { q: "A friend asks if they look fat. You lie to make them happy. This is...", options: ["Utilitarian (White lie for happiness)", "Religious (Truth is absolute)", "Egoism", "Mean"], correct: 0 }
+                    ],
+                    // Row 5 (2000)
+                    [
+                        { q: "Why is Egoism criticized?", options: ["It creates a selfish society", "It is too hard", "It helps too many people", "It is religious"], correct: 0 },
+                        { q: "What is the major weakness of Utilitarianism?", options: ["The minority can suffer terribly", "It is too strict", "It is religious", "It helps no one"], correct: 0 },
+                        { q: "Why are religious figures like MLK called 'Witnesses'?", options: ["They show their faith through action", "They saw a crime", "They wrote books", "They are old"], correct: 0 },
+                        { q: "What is a 'Moral Stance'?", options: ["A viewpoint on how to behave", "Standing up straight", "A law", "A religious book"], correct: 0 },
+                        { q: "Complete: 'Do not commit...'", options: ["Adultery", "Crime", "Mistakes", "Sins"], correct: 0 },
+                        { q: "Saving your own child instead of 5 strangers. Which theory does this violate?", options: ["Utilitarianism (5 > 1)", "Egoism", "Religious Authority", "Nihilism"], correct: 0 }
+                    ]
+                ]
+            },
+            final: {
+                category: "The Ultimate Test",
+                q: "A mother suffocates her crying baby to hide 15 people from Nazis. Explain the conflict between Utilitarianism and Religious Authority here.",
+                options: [
+                    "Utilitarian: Kill the baby (Save 15 lives > 1 life). Religious: Do NOT kill the baby (Commandment 'Do Not Kill' is absolute).",
+                    "Utilitarian: Save the baby (1 life > 15). Religious: Kill the baby (God wants the majority to live).",
+                    "Utilitarian: Do nothing (Fate decides). Religious: Pray for silence.",
+                    "Both would agree to kill the baby to save the group."
+                ],
+                correct: 0
+            }
+        };
+
+        // --- STATE ---
+        let state = {
+            round: 1,
+            turn: 0, 
+            teams: [], 
+            board: [], 
+            currentQ: null,
+            currentOptions: [],
+            finalOptions: [],
+            wager: 0,
+            processingAnswer: false,
+            finalPhase: 0,
+            categoryCount: 6,
+            maxDifficulty: 5,
+            activeCategoryIndices: [] // indices of categories to show this round
+        };
+
+        let tempConfig = { teamCount: 2, names: ["Team 1", "Team 2"], categoryCount: 6, maxDifficulty: 5 }; 
+        let currentUploadTarget = null; // 'round1', 'round2', or 'final'
+
+        // --- INIT ---
+        window.onload = () => {
+            const saved = localStorage.getItem('rmps_jeopardy_s3_v7');
+            if (saved) {
+                const loaded = JSON.parse(saved);
+                state = loaded.state;
+                if(loaded.gameData) gameData = loaded.gameData; 
+                
+                renderScoreboard();
+                if(state.board.length > 0) renderBoard();
+                
+                document.getElementById('start-btn-text').innerText = "RESUME GAME";
+                tempConfig.teamCount = state.teams.length;
+                tempConfig.names = state.teams.map(t => t.name);
+                // Pre-fill sliders from saved state if available, else default
+                tempConfig.categoryCount = state.categoryCount || 6;
+                tempConfig.maxDifficulty = state.maxDifficulty || 5;
+            } else {
+                tempConfig.teamCount = 2;
+                tempConfig.names = ["Team 1", "Team 2"];
+                tempConfig.categoryCount = 6;
+                tempConfig.maxDifficulty = 5;
+            }
+            renderHomeSettingsInputs();
+            updateConfigDisplay('cat', tempConfig.categoryCount);
+            updateConfigDisplay('diff', tempConfig.maxDifficulty);
+            document.getElementById('slider-cat-count').value = tempConfig.categoryCount;
+            document.getElementById('slider-diff-count').value = tempConfig.maxDifficulty;
+        };
+
+        function enterGame() {
+            if (state.teams.length === 0) {
+                initGameFromConfig();
+            }
+            document.getElementById('home-screen').classList.add('hidden');
+            document.getElementById('game-ui').classList.remove('hidden');
+        }
+
+        function initGameFromConfig() {
+            state.teams = [];
+            for(let i=0; i<tempConfig.teamCount; i++) {
+                state.teams.push({ 
+                    name: tempConfig.names[i] || `Team ${i+1}`, 
+                    score: 0, 
+                    finalWager: 0, 
+                    finalGuess: null 
+                });
+            }
+            // Save config to state
+            state.categoryCount = parseInt(tempConfig.categoryCount);
+            state.maxDifficulty = parseInt(tempConfig.maxDifficulty);
+            
+            startRound(1);
+        }
+
+        // --- UPLOAD LOGIC ---
+        function openUploadModal(target) {
+            currentUploadTarget = target;
+            let currentData = null;
+            let title = "";
+
+            if(target === 'round1') { currentData = gameData.round1; title="Round 1 Questions"; }
+            if(target === 'round2') { currentData = gameData.round2; title="Round 2 Questions"; }
+            if(target === 'final') { currentData = gameData.final; title="Final Jeopardy Question"; }
+
+            document.getElementById('upload-modal-title').innerText = "Upload: " + title;
+            document.getElementById('json-editor').value = JSON.stringify(currentData, null, 2);
+            document.getElementById('upload-modal').style.display = 'flex';
+        }
+
+        function closeUploadModal() {
+            document.getElementById('upload-modal').style.display = 'none';
+        }
+
+        function handleFileUpload(input) {
+            const file = input.files[0];
+            if(!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(firstSheet, {header: 1}); 
+                
+                processSpreadsheetData(rows);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function processSpreadsheetData(rows) {
+            if(rows.length < 2) { showMessage("File seems empty or invalid."); return; }
+            
+            const headers = rows[0].map(h => String(h).toLowerCase().trim());
+            const colMap = {
+                cat: headers.findIndex(h => h.includes("category")),
+                diff: headers.findIndex(h => h.includes("difficulty") || h.includes("level")),
+                q: headers.findIndex(h => h.includes("question") || h.includes("clue")),
+                ra: headers.findIndex(h => h.includes("right") || h.includes("correct")),
+                w1: headers.findIndex(h => h.includes("wrong") && (h.includes("1") || !h.includes("2"))),
+                w2: headers.findIndex(h => h.includes("wrong") && h.includes("2")),
+                w3: headers.findIndex(h => h.includes("wrong") && h.includes("3"))
+            };
+
+            if(colMap.cat === -1 || colMap.q === -1 || colMap.ra === -1) {
+                showMessage("Could not find required columns. Please check format.");
+                return;
+            }
+
+            let parsedQuestions = [];
+            for(let i=1; i<rows.length; i++) {
+                const r = rows[i];
+                if(!r[colMap.q]) continue; 
+
+                parsedQuestions.push({
+                    category: r[colMap.cat],
+                    difficulty: parseInt(r[colMap.diff]) || 1,
+                    q: r[colMap.q],
+                    right: r[colMap.ra],
+                    wrongs: [r[colMap.w1], r[colMap.w2], r[colMap.w3]].filter(w => w) 
+                });
+            }
+
+            if (currentUploadTarget === 'final') {
+                if(parsedQuestions.length === 0) return;
+                const picked = parsedQuestions[Math.floor(Math.random() * parsedQuestions.length)];
+                const newFinalData = {
+                    category: picked.category || "Final Jeopardy",
+                    q: picked.q,
+                    options: [picked.right, ...picked.wrongs], 
+                    correct: 0 
+                };
+                while(newFinalData.options.length < 4) newFinalData.options.push("-");
+                document.getElementById('json-editor').value = JSON.stringify(newFinalData, null, 2);
+
+            } else {
+                // Round 1 or 2 Logic 
+                const cats = {};
+                parsedQuestions.forEach(pq => {
+                    const c = pq.category || "General";
+                    if(!cats[c]) cats[c] = [];
+                    cats[c].push(pq);
+                });
+
+                // Get all categories initially
+                let catKeys = Object.keys(cats);
+                
+                // Note: We don't limit to 6 here anymore. We allow uploading infinite categories.
+                // The game logic in startRound handles picking N random ones.
+                // But we still need to structure the data for gameData.
+                // gameData expects categories array and matrix of questions.
+                // Let's store ALL categories found here, but organized.
+                
+                // IMPORTANT: Since the gameData structure relies on indexing [catIndex][diffIndex],
+                // we should probably store ALL categories from the upload into gameData,
+                // and then startRound picks from them.
+                
+                const finalCats = catKeys; 
+                const finalMatrix = []; // Array of Arrays (columns)
+
+                finalCats.forEach(catName => {
+                    const colQuestions = [];
+                    const availableQs = cats[catName] || [];
+
+                    for(let d=1; d<=5; d++) {
+                        const matches = availableQs.filter(q => q.difficulty === d);
+                        if(matches.length > 0) {
+                            const pick = matches[Math.floor(Math.random() * matches.length)];
+                            colQuestions.push({
+                                q: pick.q,
+                                options: [pick.right, ...pick.wrongs],
+                                correct: 0, 
+                                freeDip: false
+                            });
+                            while(colQuestions[colQuestions.length-1].options.length < 4) colQuestions[colQuestions.length-1].options.push("-");
+                        } else {
+                            colQuestions.push({ q: "FREE DIP", options: [], correct: 0, freeDip: true });
+                        }
+                    }
+                    finalMatrix.push(colQuestions);
+                });
+
+                // Convert Column-major to Row-major for gameData format [row][col]
+                // Actually my gameData structure is:
+                // questions: [ [Row1_Cat1, Row1_Cat2..], [Row2_Cat1..] ]
+                // It is Array of Rows.
+                
+                const finalRows = [];
+                for(let r=0; r<5; r++) {
+                    const rowData = [];
+                    for(let c=0; c<finalCats.length; c++) {
+                        // Access Col c, Row r
+                        // If logic above built columns, finalMatrix[c] is column array. finalMatrix[c][r] is row item.
+                        rowData.push(finalMatrix[c][r]);
+                    }
+                    finalRows.push(rowData);
+                }
+
+                const newData = {
+                    categories: finalCats,
+                    questions: finalRows
+                };
+                
+                document.getElementById('json-editor').value = JSON.stringify(newData, null, 2);
+            }
+        }
+
+        function saveUploadedData() {
+            try {
+                const newData = JSON.parse(document.getElementById('json-editor').value);
+                if(currentUploadTarget === 'round1') gameData.round1 = newData;
+                if(currentUploadTarget === 'round2') gameData.round2 = newData;
+                if(currentUploadTarget === 'final') gameData.final = newData;
+                
+                localStorage.removeItem('rmps_jeopardy_s3_v7');
+                alert("Data updated! Start a new game to see changes.");
+                closeUploadModal();
+            } catch(e) {
+                alert("Invalid JSON format. Please check your edits.");
+            }
+        }
+
+        // --- HOME SETTINGS ---
+        function openHomeSettings() {
+            document.getElementById('home-settings-modal').style.display = 'flex';
+            updateTeamCountVisuals();
+        }
+
+        function closeHomeSettings() {
+            document.getElementById('home-settings-modal').style.display = 'none';
+        }
+
+        function setTempTeamCount(n) {
+            tempConfig.teamCount = n;
+            if (tempConfig.names.length < n) {
+                for(let i=tempConfig.names.length; i<n; i++) tempConfig.names.push(`Team ${i+1}`);
+            }
+            updateTeamCountVisuals();
+            renderHomeSettingsInputs();
+        }
+
+        function updateConfigDisplay(type, val) {
+            document.getElementById(`disp-${type}-count`).innerText = val;
+            if(type === 'cat') tempConfig.categoryCount = parseInt(val);
+            if(type === 'diff') tempConfig.maxDifficulty = parseInt(val);
+        }
+
+        function updateTeamCountVisuals() {
+            [2,3,4].forEach(n => {
+                const btn = document.getElementById(`btn-count-${n}`);
+                if (n === tempConfig.teamCount) {
+                    btn.classList.remove('text-gray-400', 'hover:text-white');
+                    btn.classList.add('bg-blue-600', 'text-white');
+                } else {
+                    btn.classList.add('text-gray-400', 'hover:text-white');
+                    btn.classList.remove('bg-blue-600', 'text-white');
+                }
+            });
+        }
+
+        function renderHomeSettingsInputs() {
+            const container = document.getElementById('home-team-inputs');
+            container.innerHTML = '';
+            for(let i=0; i<tempConfig.teamCount; i++) {
+                container.innerHTML += `
+                    <div class="mb-2">
+                        <label class="text-sm text-gray-400">Team ${i+1} Name</label>
+                        <input type="text" class="w-full bg-gray-900 text-white p-3 rounded border border-gray-700 focus:border-blue-500 outline-none"
+                            value="${tempConfig.names[i]}" oninput="tempConfig.names[${i}] = this.value">
+                    </div>
+                `;
+            }
+        }
+
+        function saveHomeSettings() {
+            if(state.teams.length > 0) {
+                showConfirm("Saving new settings will overwrite the current saved game. Continue?", () => {
+                    localStorage.removeItem('rmps_jeopardy_s3_v7');
+                    state.teams = []; 
+                    initGameFromConfig(); 
+                    document.getElementById('start-btn-text').innerText = "START GAME";
+                    closeHomeSettings();
+                });
+            } else {
+                initGameFromConfig(); // This just preps state, doesn't start round until Enter Game
+                closeHomeSettings();
+            }
+        }
+
+        // --- GAME SETTINGS (PANEL) ---
+        function toggleInGameSettings() {
+            const p = document.getElementById('settings-panel');
+            if(p.classList.contains('translate-x-full')) {
+                renderInGameSettings();
+                p.classList.remove('translate-x-full');
+            } else {
+                p.classList.add('translate-x-full');
+            }
+        }
+
+        function renderInGameSettings() {
+            const container = document.getElementById('ingame-score-inputs');
+            container.innerHTML = '';
+            state.teams.forEach((t, i) => {
+                container.innerHTML += `
+                    <div>
+                        <label class="text-xs text-blue-300 font-bold">${t.name}</label>
+                        <input type="number" class="w-full p-2 bg-gray-900 text-white rounded font-mono" 
+                            value="${t.score}" onchange="updateTeamScore(${i}, this.value)">
+                    </div>
+                `;
+            });
+        }
+
+        function updateTeamScore(idx, val) {
+            state.teams[idx].score = parseInt(val) || 0;
+            saveState();
+            renderScoreboard();
+        }
+
+        function quitToHome() {
+            showConfirm("Quit to Home? This will RESET the game completely.", () => {
+                localStorage.removeItem('rmps_jeopardy_s3_v7');
+                location.reload();
+            });
+        }
+
+        // --- SCOREBOARD RENDERING ---
+        function renderScoreboard() {
+            const container = document.getElementById('scoreboard-container');
+            container.innerHTML = '';
+            
+            state.teams.forEach((team, i) => {
+                const isActive = state.turn === i;
+                const activeClass = isActive ? "border-b-4 border-yellow-400 pb-1" : "pb-2 opacity-70";
+                const colorClass = ['text-blue-300', 'text-green-300', 'text-red-300', 'text-purple-300'][i % 4];
+                
+                const div = document.createElement('div');
+                div.className = "flex flex-col items-center mx-4";
+                div.innerHTML = `
+                    <span class="text-lg font-bold ${colorClass} ${activeClass} whitespace-nowrap">${team.name}</span>
+                    <span class="text-3xl font-mono">${team.score}</span>
+                `;
+                container.appendChild(div);
+            });
+
+            const turnEl = document.getElementById('turn-indicator');
+            if(state.teams[state.turn]) {
+                turnEl.innerText = state.teams[state.turn].name;
+                const colors = ['text-blue-400', 'text-green-400', 'text-red-400', 'text-purple-400'];
+                turnEl.className = `text-xl font-bold animate-pulse ${colors[state.turn % 4]}`;
+            }
+        }
+
+        // --- GAME LOGIC ---
+        function saveState() {
+            const fullSave = { state: state, gameData: gameData };
+            localStorage.setItem('rmps_jeopardy_s3_v7', JSON.stringify(fullSave));
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // --- MODAL UTILS ---
+        let pendingConfirmAction = null;
+        function showMessage(msg) {
+            document.getElementById('msg-modal-text').innerText = msg;
+            document.getElementById('message-modal').style.display = 'flex';
+        }
+        function closeMessageModal() { document.getElementById('message-modal').style.display = 'none'; }
+        function showConfirm(msg, action) {
+            document.getElementById('confirm-modal-text').innerText = msg;
+            pendingConfirmAction = action;
+            document.getElementById('confirm-modal').style.display = 'flex';
+        }
+        function confirmAction(isConfirmed) {
+            document.getElementById('confirm-modal').style.display = 'none';
+            if (isConfirmed && pendingConfirmAction) pendingConfirmAction();
+            pendingConfirmAction = null;
+        }
+
+        // --- TUTORIAL ---
+        let currentTutStep = 1;
+        function openTutorial() { currentTutStep = 1; showTutStep(1); document.getElementById('tutorial-modal').style.display = 'flex'; }
+        function closeTutorial() { document.getElementById('tutorial-modal').style.display = 'none'; }
+        function showTutStep(n) {
+            [1,2,3].forEach(i => {
+                document.getElementById(`tut-step-${i}`).classList.add('hidden');
+                const dot = document.getElementById(`tut-dot-${i}`);
+                if(i===n) { dot.classList.remove('bg-gray-600'); dot.classList.add('bg-yellow-400'); }
+                else { dot.classList.remove('bg-yellow-400'); dot.classList.add('bg-gray-600'); }
+            });
+            document.getElementById(`tut-step-${n}`).classList.remove('hidden');
+            const prev = document.getElementById('tut-prev');
+            const next = document.getElementById('tut-next');
+            if(n===1) { prev.disabled = true; prev.classList.add('opacity-50', 'cursor-not-allowed'); }
+            else { prev.disabled = false; prev.classList.remove('opacity-50', 'cursor-not-allowed'); }
+            next.innerText = n===3 ? "Close" : "Next";
+        }
+        function nextTutorialStep() { if(currentTutStep < 3) { currentTutStep++; showTutStep(currentTutStep); } else closeTutorial(); }
+        function prevTutorialStep() { if(currentTutStep > 1) { currentTutStep--; showTutStep(currentTutStep); } }
+
+        // --- CSV HELP ---
+        function openCsvHelp() { document.getElementById('csv-help-modal').style.display = 'flex'; }
+        function closeCsvHelp() { document.getElementById('csv-help-modal').style.display = 'none'; }
+
+        // --- CORE GAME ---
+        function startRound(roundNum) {
+            state.round = roundNum;
+            state.board = [];
+            
+            const data = roundNum === 1 ? gameData.round1 : gameData.round2;
+            const availableCategoriesCount = data.categories.length;
+            
+            // Randomly select indices if we have more categories than needed
+            let indices = Array.from({length: availableCategoriesCount}, (_, i) => i);
+            if (availableCategoriesCount > state.categoryCount) {
+                indices = shuffleArray(indices).slice(0, state.categoryCount);
+            } else {
+                // If fewer available than requested, take what we have
+                state.categoryCount = Math.min(state.categoryCount, availableCategoriesCount);
+                indices = indices.slice(0, state.categoryCount);
+            }
+            state.activeCategoryIndices = indices;
+
+            const rows = state.maxDifficulty; 
+            const cols = state.categoryCount;
+            
+            // Generate Daily Doubles
+            let ddCount = roundNum === 1 ? 1 : 2;
+            // Ensure DD count doesn't exceed board size
+            ddCount = Math.min(ddCount, rows * cols);
+            
+            let ddLocs = new Set();
+            while(ddLocs.size < ddCount) {
+                ddLocs.add(`${Math.floor(Math.random() * rows)},${Math.floor(Math.random() * cols)}`);
+            }
+
+            for(let r=0; r<rows; r++) {
+                let row = [];
+                for(let c=0; c<cols; c++) {
+                    row.push({ played: false, isDD: ddLocs.has(`${r},${c}`) });
+                }
+                state.board.push(row);
+            }
+            saveState(); renderScoreboard(); renderBoard();
+        }
+
+        function renderBoard() {
+            const grid = document.getElementById('questions-grid');
+            const catRow = document.getElementById('category-row');
+            grid.innerHTML = ''; catRow.innerHTML = '';
+            const data = state.round === 1 ? gameData.round1 : gameData.round2;
+            const baseVal = state.round === 1 ? 200 : 400; 
+
+            // Dynamic Grid Styles
+            const cols = state.categoryCount;
+            const rows = state.maxDifficulty;
+            
+            const gridStyle = `grid-template-columns: repeat(${cols}, 1fr); flex: 1 1 0%;`; // Flex 1 for Header
+            const questionsGridStyle = `grid-template-columns: repeat(${cols}, 1fr); grid-template-rows: repeat(${rows}, 1fr); flex: ${rows} 1 0%;`; // Flex N for Body
+
+            catRow.setAttribute('style', gridStyle);
+            grid.setAttribute('style', questionsGridStyle);
+
+            // Render Categories
+            state.activeCategoryIndices.forEach(idx => {
+                const catName = data.categories[idx];
+                catRow.innerHTML += `<div class="bg-blue-800 text-white p-2 text-center flex items-center justify-center font-bold rounded shadow cat-title h-full w-full">${catName}</div>`;
+            });
+
+            // Render Cells
+            for(let r=0; r<rows; r++) {
+                for(let c=0; c<cols; c++) {
+                    const cellData = state.board[r][c];
+                    
+                    // Map visual column c back to data index
+                    const dataCatIndex = state.activeCategoryIndices[c];
+                    // Access data [row][col] - data struct is array of rows [5][all_cats]
+                    const qData = data.questions[r][dataCatIndex]; 
+                    
+                    const isFreeDip = qData && qData.freeDip;
+                    const val = (r+1) * baseVal; // Value based on ROW (difficulty)
+                    
+                    const card = document.createElement('div');
+                    
+                    let classes = `jeopardy-card ${cellData.played ? 'played' : ''}`;
+                    if(isFreeDip) classes += " free-dip-card"; 
+
+                    card.className = classes;
+                    card.innerHTML = `<span class="point-value">${val}</span>`;
+                    if(!cellData.played) card.onclick = () => clickCard(r, c, val, qData);
+                    grid.appendChild(card);
+                }
+            }
+        }
+
+        function clickCard(r, c, val, qData) {
+            // qData passed directly from render loop
+            if(!qData) qData = {q:"Error: No Question", options:[], correct:0};
+
+            // FREE DIP CHECK
+            if(qData.freeDip) {
+                state.board[r][c].played = true;
+                state.teams[state.turn].score += val;
+                showMessage(`FREE DIP! ${state.teams[state.turn].name} wins ${val} points!`);
+                saveState(); renderScoreboard(); renderBoard();
+                
+                state.turn = (state.turn + 1) % state.teams.length;
+                saveState(); renderScoreboard();
+                
+                checkRoundComplete();
+                return;
+            }
+
+            state.currentQ = { r, c, val, data: qData };
+            state.processingAnswer = false;
+            state.currentOptions = [];
+            if (state.board[r][c].isDD) openDailyDouble(val);
+            else { state.wager = val; openQuestion(); }
+        }
+
+        // --- DAILY DOUBLE ---
+        function openDailyDouble(currentVal) {
+            const modal = document.getElementById('wager-modal');
+            const maxScore = Math.max(state.teams[state.turn].score, 1000);
+            document.getElementById('max-wager').innerText = maxScore;
+            const slider = document.getElementById('wager-slider');
+            slider.max = maxScore; slider.value = 0;
+            updateWagerDisplay('wager-display', 0);
+            modal.style.display = 'flex';
+        }
+        function updateWagerDisplay(id, val) { document.getElementById(id).innerText = val; }
+        function submitDailyDoubleWager() {
+            state.wager = parseInt(document.getElementById('wager-slider').value);
+            document.getElementById('wager-modal').style.display = 'none';
+            openQuestion();
+        }
+
+        // --- QUESTIONS ---
+        function openQuestion() {
+            const modal = document.getElementById('question-modal');
+            const data = state.currentQ.data;
+            
+            // Resolve Category Name for Modal
+            const catIdx = state.activeCategoryIndices[state.currentQ.c];
+            const catName = (state.round === 1 ? gameData.round1 : gameData.round2).categories[catIdx];
+            
+            document.getElementById('q-modal-cat').innerText = catName;
+            document.getElementById('q-modal-val').innerText = state.wager;
+            document.getElementById('q-text').innerText = data.q;
+            document.getElementById('feedback-text').style.opacity = '0';
+
+            const mcqBox = document.getElementById('mcq-container');
+            mcqBox.innerHTML = '';
+            let opts = data.options.map((opt, i) => ({ text: opt, isCorrect: i === data.correct }));
+            state.currentOptions = shuffleArray(opts);
+            
+            state.currentOptions.forEach((optObj, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'mcq-btn';
+                btn.innerHTML = `<span class="font-bold text-yellow-400 mr-2">${String.fromCharCode(65+idx)}:</span> ${optObj.text}`;
+                btn.onclick = () => handleAnswer(idx);
+                mcqBox.appendChild(btn);
+            });
+            saveState(); modal.style.display = 'flex';
+        }
+
+        function handleAnswer(selectedIndex) {
+            if (state.processingAnswer) return;
+            state.processingAnswer = true;
+            const isCorrect = state.currentOptions[selectedIndex].isCorrect;
+            const buttons = document.querySelectorAll('.mcq-btn');
+            
+            let correctButtonIdx = state.currentOptions.findIndex(o => o.isCorrect);
+            buttons[correctButtonIdx].classList.add('correct');
+            if(!isCorrect) buttons[selectedIndex].classList.add('wrong');
+
+            const isDD = state.board[state.currentQ.r][state.currentQ.c].isDD;
+            if(isCorrect) {
+                state.teams[state.turn].score += state.wager;
+                document.getElementById('feedback-text').innerText = `Correct! (+${state.wager})`;
+            } else {
+                if (isDD) {
+                     state.teams[state.turn].score -= state.wager;
+                     document.getElementById('feedback-text').innerText = `Incorrect! (-${state.wager})`;
+                } else document.getElementById('feedback-text').innerText = `Incorrect!`;
+            }
+            document.getElementById('feedback-text').style.opacity = '1';
+            setTimeout(() => { closeQuestion(true); }, 1500); 
+        }
+
+        function closeQuestion(wasPlayed) {
+            if(wasPlayed && state.currentQ) {
+                state.board[state.currentQ.r][state.currentQ.c].played = true;
+                state.turn = (state.turn + 1) % state.teams.length; // Rotate turn
+            }
+            saveState(); renderScoreboard(); renderBoard();
+            document.getElementById('question-modal').style.display = 'none';
+            checkRoundComplete();
+        }
+
+        function checkRoundComplete() {
+            if (state.round > 2) return; 
+
+            let allPlayed = true;
+            const rLim = state.maxDifficulty;
+            const cLim = state.categoryCount;
+            
+            for(let r=0; r<rLim; r++) {
+                for(let c=0; c<cLim; c++) {
+                    if(!state.board[r][c].played) {
+                        allPlayed = false;
+                        break;
+                    }
+                }
+            }
+
+            if(allPlayed) {
+                showRoundComplete();
+            }
+        }
+
+        function showRoundComplete() {
+            const modal = document.getElementById('round-complete-modal');
+            const title = document.getElementById('rc-title');
+            const scoresDiv = document.getElementById('rc-scores');
+            const nextBtn = document.getElementById('rc-next-btn');
+
+            title.innerText = `ROUND ${state.round} COMPLETE`;
+            
+            scoresDiv.innerHTML = '';
+            state.teams.forEach(t => {
+                scoresDiv.innerHTML += `
+                    <div class="bg-gray-800 p-4 rounded-lg min-w-[150px] border border-gray-600">
+                        <div class="text-blue-300 text-xl font-bold mb-1">${t.name}</div>
+                        <div class="text-white text-4xl font-mono">${t.score}</div>
+                    </div>
+                `;
+            });
+
+            if (state.round === 1) {
+                nextBtn.innerText = "START ROUND 2 (DOUBLE POINTS)";
+                nextBtn.onclick = () => {
+                    modal.style.display = 'none';
+                    startRound(2);
+                };
+            } else {
+                nextBtn.innerText = "PROCEED TO FINAL JEOPARDY";
+                nextBtn.onclick = () => {
+                    modal.style.display = 'none';
+                    initFinalJeopardy();
+                };
+            }
+
+            modal.style.display = 'flex';
+        }
+
+        // --- FINAL JEOPARDY ---
+        function initFinalJeopardy() {
+            document.getElementById('settings-panel').classList.add('translate-x-full'); // Close panel
+            const grid = document.getElementById('final-wager-grid');
+            grid.innerHTML = '';
+            
+            // Adjust grid cols based on team count
+            grid.className = `grid gap-4 mb-8 ${state.teams.length > 2 ? 'grid-cols-2' : 'grid-cols-2'}`; 
+            if(state.teams.length === 3) grid.className = "grid grid-cols-3 gap-4 mb-8";
+            
+            state.teams.forEach((team, i) => {
+                const max = Math.max(team.score, 1000);
+                const colorClass = ['text-blue-300', 'text-green-300', 'text-red-300', 'text-purple-300'][i % 4];
+                grid.innerHTML += `
+                    <div class="bg-gray-900 p-4 rounded border border-gray-700">
+                        <h3 class="text-xl ${colorClass} mb-2 font-bold">${team.name}</h3>
+                        <p class="text-sm text-gray-400 mb-2">Max: ${max}</p>
+                        <div class="mt-2">
+                            <span id="fw-val-${i}" class="text-4xl font-mono text-white block mb-2">0</span>
+                            <input type="range" id="fw-slider-${i}" min="0" max="${max}" step="10" value="0" 
+                                oninput="updateWagerDisplay('fw-val-${i}', this.value)" class="w-full">
+                        </div>
+                    </div>
+                `;
+            });
+            document.getElementById('final-wager-modal').style.display = 'flex';
+        }
+
+        function startFinalRound() {
+            state.teams.forEach((t, i) => {
+                const val = parseInt(document.getElementById(`fw-slider-${i}`).value);
+                t.finalWager = val;
+            });
+            state.finalPhase = 0; // Turn index for selection
+            
+            // Shuffle Final Options
+            let opts = gameData.final.options.map((opt, i) => ({ text: opt, isCorrect: i === gameData.final.correct }));
+            state.finalOptions = shuffleArray(opts);
+            saveState();
+
+            // Build Options
+            const box = document.getElementById('final-mcq-container');
+            box.innerHTML = '';
+            state.finalOptions.forEach((optObj, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'mcq-btn text-xl p-6 bg-gray-800 border-2 border-gray-600 hover:bg-gray-700 text-left mb-4';
+                btn.innerHTML = `<span class="font-bold text-yellow-400 mr-2">${String.fromCharCode(65+idx)}:</span> ${optObj.text}`;
+                btn.onclick = () => recordFinalAnswer(idx);
+                box.appendChild(btn);
+            });
+
+            document.getElementById('final-q-text-large').innerText = gameData.final.q;
+            document.getElementById('final-wager-modal').style.display = 'none';
+            document.getElementById('final-game-modal').style.display = 'flex';
+            toggleFinalQuestion(true); // Show overlay first
+            updateFinalStatusBar();
+        }
+
+        function toggleFinalQuestion(show) {
+            const ol = document.getElementById('final-q-overlay');
+            if(show) ol.classList.remove('-translate-y-full'); else ol.classList.add('-translate-y-full');
+        }
+
+        function updateFinalStatusBar() {
+            if(state.finalPhase < state.teams.length) {
+                const t = state.teams[state.finalPhase];
+                document.getElementById('final-current-team').innerText = t.name;
+                const colors = ['text-blue-400', 'text-green-400', 'text-red-400', 'text-purple-400'];
+                document.getElementById('final-current-team').className = colors[state.finalPhase % 4];
+            }
+        }
+
+        function recordFinalAnswer(idx) {
+            if (state.finalPhase < state.teams.length) {
+                state.teams[state.finalPhase].finalGuess = idx;
+                
+                // If more teams need to answer
+                if (state.finalPhase < state.teams.length - 1) {
+                    state.finalPhase++;
+                    showMessage(`${state.teams[state.finalPhase-1].name} Locked! Next: ${state.teams[state.finalPhase].name}`);
+                    updateFinalStatusBar();
+                } else {
+                    // All answered
+                    showFinalResults();
+                }
+            }
+        }
+
+        function showFinalResults() {
+            document.getElementById('final-game-modal').style.display = 'none';
+            const resultsGrid = document.getElementById('final-results-grid');
+            resultsGrid.innerHTML = '';
+            
+            // Adjust grid for teams - ensure items stretch
+            if(state.teams.length === 3) resultsGrid.className = "grid grid-cols-3 gap-4 flex-grow min-h-0 items-stretch";
+            else resultsGrid.className = "grid grid-cols-2 gap-4 flex-grow min-h-0 items-stretch"; 
+
+            const correctOptObj = state.finalOptions.find(o => o.isCorrect);
+            document.getElementById('result-correct-text').innerText = correctOptObj.text;
+
+            let highestScore = -Infinity;
+            let winners = [];
+
+            state.teams.forEach((t, i) => {
+                const isCorrect = state.finalOptions[t.finalGuess].isCorrect;
+                if(isCorrect) t.score += t.finalWager; else t.score -= t.finalWager;
+                
+                if(t.score > highestScore) { highestScore = t.score; winners = [t.name]; }
+                else if (t.score === highestScore) { winners.push(t.name); }
+
+                const colorClass = ['text-blue-300', 'text-green-300', 'text-red-300', 'text-purple-300'][i % 4];
+                // Added h-full and flex centering to inner cards
+                resultsGrid.innerHTML += `
+                    <div class="bg-gray-800 p-2 rounded h-full flex flex-col justify-center items-center border border-gray-700 shadow-lg">
+                        <h3 class="text-3xl ${colorClass} font-bold mb-2">${t.name}</h3>
+                        <p class="text-xl text-white mb-1">Result: <span class="${isCorrect ? 'text-green-400 font-bold':'text-red-400 font-bold'}">${isCorrect ? 'CORRECT' : 'WRONG'}</span></p>
+                        <p class="text-lg text-gray-400">Wager: ${t.finalWager}</p>
+                        <div class="text-7xl font-mono font-bold mt-2">${t.score}</div>
+                    </div>
+                `;
+            });
+
+            document.getElementById('final-result-modal').style.display = 'flex';
+            document.getElementById('winner-name').innerText = winners.length > 1 ? "TIE GAME!" : `${winners[0]} WINS!`;
+            
+            localStorage.removeItem('rmps_jeopardy_s3_v7');
+        }
+
+        function returnToHome() {
+            document.getElementById('final-result-modal').style.display = 'none';
+            document.getElementById('game-ui').classList.add('hidden');
+            document.getElementById('home-screen').classList.remove('hidden');
+            
+            // Full Reset Logic
+            state.teams = [];
+            state.board = [];
+            state.round = 1;
+            
+            // Reset Temp Config
+            tempConfig = { teamCount: 2, names: ["Team 1", "Team 2"], categoryCount: 6, maxDifficulty: 5 };
+            updateTeamCountVisuals();
+            renderHomeSettingsInputs();
+            document.getElementById('slider-cat-count').value = 6;
+            document.getElementById('slider-diff-count').value = 5;
+            updateConfigDisplay('cat', 6);
+            updateConfigDisplay('diff', 5);
+            
+            document.getElementById('start-btn-text').innerText = "START GAME";
+        }
+
+        function resetGame() {
+            showConfirm("Reset game? This wipes all progress.", () => {
+                localStorage.removeItem('rmps_jeopardy_s3_v7');
+                location.reload();
+            });
+        }
+    </script>
+</body>
+</html>
